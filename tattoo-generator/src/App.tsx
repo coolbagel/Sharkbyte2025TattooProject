@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import './App.css'
 import './styles/tattoo.css'
 import ImageSlider from './components/ImageSlider'
@@ -46,6 +46,11 @@ function App() {
   // UI toggle: when true show the slider, otherwise show simple uploaded preview.
   // Default is false so the app shows the uploaded preview by default.
   const [showSlider, setShowSlider] = useState(false)
+  // Camera capture state: whether the device camera is active
+  const [cameraOn, setCameraOn] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  const streamRef = useRef<MediaStream | null>(null)
 
   // A ref to the native file input so we can clear it programmatically
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -61,6 +66,14 @@ function App() {
       setPhotoFile(f)
       // createObjectURL returns a URL like "blob:https://..." for previewing
       setPhotoPreview(URL.createObjectURL(f))
+      // Clear the native file input's value so selecting the same file
+      // again will trigger the change event. We keep the File in state
+      // (setPhotoFile) so uploads still work.
+      try {
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      } catch {
+        // ignore; clearing is best-effort
+      }
     } else {
       // If the input was cleared, remove the preview and file refs
       setPhotoFile(null)
@@ -150,7 +163,137 @@ function App() {
     // The only reliable way to fully clear a controlled file input is to
     // reset the underlying input element's .value property.
     if (fileInputRef.current) fileInputRef.current.value = ''
+    // also turn off camera if it was on
+    disableCamera()
   }
+
+  // Enable device camera and attach to video element
+  const enableCamera = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError('Camera not supported in this browser')
+      return
+    }
+
+    try {
+      // Request the camera stream first and store it. We set cameraOn=true
+      // so the <video> element mounts, then attach the stream in a separate
+      // effect where we can be sure the ref exists.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      streamRef.current = stream
+      setCameraOn(true)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`Could not access camera: ${msg}`)
+      setCameraOn(false)
+    }
+  }
+
+  // Attach stream to the video element once camera is turned on and the
+  // video element is mounted. This avoids trying to access videoRef before
+  // the element exists (which can lead to no visible preview).
+  useEffect(() => {
+    const attach = async () => {
+      const videoEl = videoRef.current
+      const stream = streamRef.current
+      if (!videoEl || !stream) return
+      try {
+        videoEl.srcObject = stream
+        try {
+          videoEl.muted = true
+          videoEl.playsInline = true
+        } catch (e) {
+          console.debug('attach: could not set muted/playsInline', e)
+        }
+        // Attempt to play; some browsers will allow autoplay if muted.
+        await videoEl.play()
+      } catch (e) {
+        console.debug('attach: video play failed', e)
+      }
+    }
+
+    if (cameraOn) {
+      attach()
+    } else {
+      // If camera turned off, ensure video element stops showing stream
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause()
+          videoRef.current.srcObject = null
+        } catch (e) {
+          console.debug('disable: could not clear srcObject', e)
+        }
+      }
+    }
+
+    // cleanup not necessary here; disableCamera handles stream stop
+  }, [cameraOn])
+
+  const disableCamera = () => {
+    try {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+      }
+    } finally {
+      if (videoRef.current) {
+        videoRef.current.pause()
+        try {
+          // clear the media stream reference
+          videoRef.current.srcObject = null
+        } catch {
+          (videoRef.current as HTMLVideoElement).srcObject = null
+        }
+      }
+      setCameraOn(false)
+    }
+  }
+
+  // Snap photo from the live video and set as the preview + file to upload
+  const snapPhoto = async () => {
+    if (!videoRef.current) return
+
+    const video = videoRef.current
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth || video.clientWidth
+    canvas.height = video.videoHeight || video.clientHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+    return new Promise<void>((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          setError('Failed to capture photo')
+          resolve()
+          return
+        }
+
+        // Create a File so it can be uploaded via FormData like a normal file
+        const file = new File([blob], 'camera-snap.png', { type: blob.type })
+        setPhotoFile(file)
+        // Use object URL for preview
+        const url = URL.createObjectURL(file)
+        setPhotoPreview(url)
+        // If a user had previously selected a file via the native input,
+        // clear that input so re-selecting the same file later will fire
+        // the change event and be accepted.
+        try {
+          if (fileInputRef.current) fileInputRef.current.value = ''
+        } catch {
+          /* ignore */
+        }
+        resolve()
+      }, 'image/png')
+    })
+  }
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      disableCamera()
+    }
+
+  }, [])
 
   // --- Render ---
   // Uses the same markup structure and CSS class names as your original
@@ -166,7 +309,10 @@ function App() {
       <form onSubmit={handleSubmit} className="form-card" encType="multipart/form-data">
         <div className="form-group">
           <label htmlFor="photo">Upload a body photo:</label>
-          {/* file input: accepts images only; ref used to clear value programmatically */}
+          {/* Hide the native file input UI (removes the "No file chosen" text)
+              and use a styled button that triggers the file picker. The input
+              remains in the DOM and is triggered programmatically for best
+              cross-browser behavior. */}
           <input
             id="photo"
             ref={fileInputRef}
@@ -174,8 +320,22 @@ function App() {
             name="photo"
             accept="image/*"
             onChange={onFileChange}
-            required
+            className="native-file-input-hidden"
           />
+          <button type="button" className="generate-btn" onClick={() => fileInputRef.current?.click()}>
+            Choose file
+          </button>
+          <div className="camera-toggle-bar">
+            <label className="muted-text">Use camera</label>
+            <ToggleSwitch
+              checked={cameraOn}
+              onChange={(v) => {
+                if (v) enableCamera()
+                else disableCamera()
+              }}
+              ariaLabel="Toggle camera"
+            />
+          </div>
         </div>
 
         <div className="form-group">
@@ -245,6 +405,23 @@ function App() {
           we show a helpful muted message and disable the switch. */}
       <section className="output">
         <h2>📸 Preview</h2>
+        {/* Camera preview (appears below the form when enabled). It does not replace
+            the uploaded preview — the uploaded image remains visible until a snap
+            replaces it. */}
+        {cameraOn && (
+          <>
+            <div className="image-display preview-chrome camera-preview">
+              <video ref={videoRef} playsInline autoPlay muted />
+            </div>
+            <div className="camera-controls">
+              <button type="button" className="generate-btn" onClick={() => snapPhoto()}>
+                📸 Snap
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Uploaded preview / slider (independent from camera state) */}
         {photoPreview ? (
           <>
             <div className="preview-toggle-bar">
@@ -266,7 +443,8 @@ function App() {
             )}
           </>
         ) : (
-          <p className="muted-text">Upload an image to enable the preview and before/after slider.</p>
+          /* Show hint only if neither camera nor uploaded preview exists */
+          !cameraOn && <p className="muted-text">Upload an image to enable the preview and before/after slider.</p>
         )}
       </section>
 

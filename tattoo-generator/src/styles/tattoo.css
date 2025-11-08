@@ -168,3 +168,31 @@ input::file-selector-button:hover {
   gap: 12px;
   margin-bottom: 10px;
 }
+
+/* Hide the native file input UI while keeping it in the DOM for accessibility
+   and programmatic activation. Use the visible button to trigger the file picker. */
+.native-file-input-hidden {
+  display: none;
+}
+
+/* small layout for the camera toggle next to the file input */
+.camera-toggle-bar {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* camera preview box styling */
+.camera-preview video {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 10px;
+}
+
+.camera-controls {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
