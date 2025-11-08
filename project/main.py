@@ -1,23 +1,15 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-
-
-
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 import google.generativeai as genai_dep
-from PIL import Image
-import io
-import os
-
-
 from google import genai
-from google.genai import types
 from PIL import Image
 from io import BytesIO
-
-
+import os, io, base64
 
 app = FastAPI()
 
@@ -32,8 +24,19 @@ app.add_middleware(
 # Configure Gemini API
 genai_dep.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-@app.post("/generate-tattoo/")
+# Tell FastAPI where to find templates
+templates = Jinja2Templates(directory="templates")
+
+# ----------------------- HTML ENDPOINT ------------------------
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    """Show the upload form."""
+    return templates.TemplateResponse("index.html", {"request": request, "result": None})
+
+# ---------------------- GENERATION ENDPOINT -------------------
+@app.post("/generate-tattoo/", response_class=HTMLResponse)
 async def generate_tattoo(
+    request: Request,
     photo: UploadFile = File(...),
     style: str = Form(...),
     theme: str = Form(...),
@@ -41,74 +44,54 @@ async def generate_tattoo(
     size: str = Form(...)
 ):
     try:
-
-
-
-#IMAGEN STUFF-------------------------
         client = genai.Client()
         image_bytes = await photo.read()
         image = Image.open(BytesIO(image_bytes))
 
         prompt = f"""
         You are a professional tattoo designer.
-        USING ONLY THE IMAGE PROVIDED,Design a {color_mode} {style} tattoo with the theme "{theme}".
+        USING ONLY THE IMAGE PROVIDED, design a {color_mode} {style} tattoo with the theme "{theme}".
         It should be appropriate for a {size} placement on the provided body photo.
-        Keep the original image intact — only overlay the tattoo realistically. YOU MAY ONLY USE THE IMAGE PROVIDED BY ME AS A BASE.
+        Keep the original image intact — only overlay the tattoo realistically.
         """
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash-image",#
+            model="gemini-2.5-flash-image",
             contents=[prompt, image],
         )
 
         description = ""
-        image = None
+        generated_image = None
 
         for part in response.parts:
-            if part.text is not None:
+            if part.text:
                 description += part.text
-            elif part.inline_data is not None:
-                image = part.as_image()
+            elif part.inline_data:
+                generated_image = part.as_image()
 
-        if image:
-            buffer = io.BytesIO()
-            #image.save("generated_image.png", "PNG")  # ✅ safe form
-            from PIL import Image as PILImage
-            
+        base64_img = None
+        if generated_image:
+            buffer = BytesIO()
+            generated_image.save("generated_image.png")
+            base64_img = base64.b64encode(buffer.getvalue()).decode()
 
-            # Safely handle different image formats Gemini might return
-            if hasattr(image, "save"):  # means it's a real PIL image
-                image.save("generated_image.png")
-            else:
-                # handle raw bytes or inline data
-                with open("generated_image.png", "wb") as f:
-                    if hasattr(image, "read"):
-                        f.write(image.read())
-                    elif isinstance(image, bytes):
-                        f.write(image)
-                    elif hasattr(image, "tobytes"):
-                        f.write(image.tobytes())
-                    else:
-                        raise TypeError(f"Unexpected image type: {type(image)}")
-
-            buffer.seek(0)
-            image_bytes = buffer.getvalue()
-        else:
-            image_bytes = None
-
-        return {
-            "idea": description,
-            "style": style,
-            "theme": theme,
-            "color_mode": color_mode,
-            "size": size,
-            # optionally base64-encode for frontend:
-            # "preview_image_base64": base64.b64encode(image_bytes).decode() if image_bytes else None,
-        }
-
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "result": {
+                    "idea": description,
+                    "style": style,
+                    "theme": theme,
+                    "color_mode": color_mode,
+                    "size": size,
+                    "image_base64": base64_img,
+                },
+            },
+        )
 
     except Exception as e:
-        return {"error": str(e)}
-
-
-#HTML ENDPOINT-------------------------
+        return templates.TemplateResponse(
+            "index.html",
+            {"request": request, "error": str(e), "result": None},
+        )
