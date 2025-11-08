@@ -1,4 +1,5 @@
-import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI
+import fastapi, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
 from PIL import Image
