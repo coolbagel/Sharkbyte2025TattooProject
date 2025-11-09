@@ -6,10 +6,8 @@ import ToggleSwitch from './components/ToggleSwitch'
 import SessionGallery from './components/Gallery'
 
 // Result shape we expect from the server after generating the tattoo
-// - `idea`: a short text description of the generated tattoo idea
 // - `image_base64`: a base64-encoded PNG image we can embed in an <img>
 type Result = {
-  idea?: string
   image_base64?: string
 }
 
@@ -22,9 +20,9 @@ type Result = {
  *
  * High-level responsibilities:
  * - let the user pick a photo (file input) and preview it locally
- * - collect text inputs (style, theme, color_mode, size)
+ * - collect text inputs (style, theme, color_mode, physical_attributes)
  * - POST the data as FormData to `/generate-tattoo/`
- * - show loading, error, and the returned generated image/idea
+ * - show loading, error, and the returned generated image
  */
 function App() {
   // --- Local UI state ---
@@ -37,7 +35,7 @@ function App() {
   const [styleText, setStyleText] = useState('')
   const [themeText, setThemeText] = useState('')
   const [colorMode, setColorMode] = useState('')
-  const [sizeText, setSizeText] = useState('')
+  const [physicalAttributes, setPhysicalAttributes] = useState('')
 
   // Loading / result / error state
   const [loading, setLoading] = useState(false)
@@ -119,7 +117,7 @@ const API_URL = isLocal
     form.append('style', styleText)
     form.append('theme', themeText)
     form.append('color_mode', colorMode)
-    form.append('size', sizeText)
+    form.append('physical_attributes', physicalAttributes)
 
     setLoading(true)
     try {
@@ -143,14 +141,13 @@ const API_URL = isLocal
         throw new Error(text || `Request failed with status ${resp.status}`)
       }
 
-      // Expect JSON: either { error } or { idea, image_base64 }
+      // Expect JSON: either { error } or { image_base64 }
       const json = await resp.json()
       if (json.error) {
         setError(String(json.error))
       } else {
         // normalize key name because sometimes backend might send generated_image_base64
         const thisResult: Result = {
-          idea: json.idea,
           image_base64: json.generated_image_base64 || json.image_base64,
         }
         // show latest
@@ -179,7 +176,7 @@ const API_URL = isLocal
     setStyleText('')
     setThemeText('')
     setColorMode('')
-    setSizeText('')
+    setPhysicalAttributes('')
     setResult(null)
     setError(null)
     // The only reliable way to fully clear a controlled file input is to
@@ -400,13 +397,13 @@ const API_URL = isLocal
         </div>
 
         <div className="form-group">
-          <label htmlFor="size">Placement / Size:</label>
+          <label htmlFor="physical_attributes">Placement / Size:</label>
           <input
-            id="size"
+            id="physical_attributes"
             type="text"
-            name="size"
-            value={sizeText}
-            onChange={(e) => setSizeText(e.target.value)}
+            name="physical_attributes"
+            value={physicalAttributes}
+            onChange={(e) => setPhysicalAttributes(e.target.value)}
             placeholder="e.g. forearm, shoulder"
             required
           />
@@ -474,9 +471,6 @@ const API_URL = isLocal
       {result && (
         <section className="output">
           <h2>✨ Generated Tattoo Design</h2>
-          <p>
-            <strong>Idea:</strong> {result.idea}
-          </p>
           {result.image_base64 && (
             <div className="image-display">
               {/* embed PNG image returned as base64 */}
