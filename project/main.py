@@ -67,7 +67,7 @@ The tattoo must be overlaid naturally on the provided body photo
 without changing or adding any body parts, faces, skin, or background.
 Do NOT redraw or modify the person — only add the tattoo itself.
 Ensure the tattoo placement and size look realistic for a {size} tattoo.
-Return both a design concept and an overlay image that keeps the original body photo intact.
+Return an overlay image that keeps the original body photo intact. No text should be in the response.
 """
 
 
