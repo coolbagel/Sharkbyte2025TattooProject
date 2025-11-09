@@ -270,8 +270,8 @@ async def alter_tattoo(request: Request):
             lines.append(f"- Theme: {theme}")
         if color_mode:
             lines.append(f"- Color Mode: {color_mode}")
-        #if size:
-        #    lines.append(f"- Tattoo Size / Placement Notes: {size}")
+        if size:
+            lines.append(f"- Tattoo Size / Placement Notes: {size}")
 
         lines.append("")
         lines.append("User feedback (the requested changes):")
